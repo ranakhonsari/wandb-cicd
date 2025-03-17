@@ -1,32 +1,22 @@
-name: bug-label
-on: issue_comment
+name: Label PR as Bug
 
-permissions:
-  issues: write
-  pull-requests: write
+on:
+  issue_comment:
+    types: [created]
 
 jobs:
-  ghapi-exercise:
-    if: (github.event.issue.pull_request != null) && contains(github.event.comment.body, '/bug')
+  label-bug:
+    if: github.event.issue.pull_request # Ensure it's a PR
     runs-on: ubuntu-latest
-    steps:        
-    - name: install dependencies
-      run: pip install ghapi 
 
-    - name: see payload # this step is for debugging purposes only, so you can see the payload. 
-      run: echo "PAYLOAD:\n${PAYLOAD}\n"
-      env:
-        PAYLOAD: ${{ toJSON(github.event) }}
-      
-    - name: Make a comment
-      shell: python
-      run: |
-        import os
-        from ghapi.core import GhApi
-        owner,repo = os.environ['REPO'].split('/')
-        api = GhApi(owner=owner, repo=repo)
-        api.issues.add_labels(issue_number=os.environ['NUMBER'], labels=['bug'])
-      env:
-        NUMBER: ${{ github.event.issue.number }} 
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        REPO: ${{ github.repository }}
+    permissions:
+      issues: read
+      pull-requests: write
+
+    steps:
+      - name: Check if comment contains /bug
+        if: contains(github.event.comment.body, '/bug')
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: bug
