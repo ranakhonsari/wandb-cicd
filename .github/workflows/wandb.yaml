@@ -5,12 +5,11 @@ on:
     types: [created]
 
 jobs:
-  label-bug:
-    if: github.event.issue.pull_request # Ensure it's a PR
+  process-wandb-comment:
+    if: github.event.issue.pull_request != null # Ensure it's a PR
     runs-on: ubuntu-latest
 
     permissions:
-      issues: read
       pull-requests: write
 
     steps:
@@ -19,11 +18,35 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           echo "Comment received: $COMMENT_BODY"
-          if [[ "$COMMENT_BODY" =~ ^/wandb\ ([a-zA-Z0-9_-]+)$ ]]; then
-            RUN_ID=${BASH_REMATCH[1]}
+          if [[ "$COMMENT_BODY" =~ ^/wandb[[:space:]]+([a-zA-Z0-9_-]+)$ ]]; then
+            RUN_ID="${BASH_REMATCH[1]}"
             echo "Detected Run ID: $RUN_ID"
             echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
           else
             echo "No valid /wandb <run_id> found."
             exit 1
           fi
+
+      - name: Fetch Baseline Run from W&B
+        env:
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }} # Store your W&B API key in GitHub Secrets
+          PROJECT_PATH: "rkhonsari13-saarland-informatics-campus/lineage-example"
+        run: |
+          BASELINE_RUN_ID=$(curl -s -H "Authorization: Bearer $WANDB_API_KEY" \
+            "https://api.wandb.ai/graphql" \
+            -H "Content-Type: application/json" \
+            --data-binary @- <<EOF | jq -r '.data.project.runs.edges[] | select(.node.tags[] | contains("baseline")) | .node.name'
+          {
+            "query": "query { project(name: \"${PROJECT_PATH}\") { runs(first: 100) { edges { node { name tags } } } } }"
+          }
+          EOF
+          )
+          
+          if [[ -z "$BASELINE_RUN_ID" ]]; then
+            echo "No run with the tag 'baseline' found."
+            exit 1
+          fi
+
+          echo "Baseline Run ID: $BASELINE_RUN_ID"
+          echo "BASELINE_RUN_ID=$BASELINE_RUN_ID" >> $GITHUB_ENV
+
