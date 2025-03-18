@@ -27,10 +27,3 @@ jobs:
             echo "No valid /wandb <run_id> found."
             exit 1
           fi
-
-      - name: Label PR as Bug (if run ID detected)
-        if: env.RUN_ID
-        uses: actions-ecosystem/action-add-labels@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          labels: bug
