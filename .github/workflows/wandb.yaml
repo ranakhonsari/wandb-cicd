@@ -1,52 +1,46 @@
-name: wandb
+import os, wandb
+import wandb.apis.reports as wr
 
-on:
-  issue_comment:
-    types: [created]
+assert os.getenv('WANDB_API_KEY'), 'You must set the WANDB_API_KEY environment variable'
 
-jobs:
-  process-wandb-comment:
-    if: github.event.issue.pull_request != null # Ensure it's a PR
-    runs-on: ubuntu-latest
+def get_baseline_run(entity='hamelsmu', project='my-report-project', tag='baseline'):
+    "Get the baseline run from the project using tags"
 
-    permissions:
-      pull-requests: write
+    api = wandb.Api()
+    runs=api.runs(f'{entity}/{project}', {"tags": {"$in": [tag]}})
+    assert len(runs) == 1, 'There must be exactly one run with the tag "baseline"'
+    return runs[0]
 
-    steps:
-      - name: Extract Run ID from Comment
-        env:
-          COMMENT_BODY: ${{ github.event.comment.body }}
-        run: |
-          echo "Comment received: $COMMENT_BODY"
-          if [[ "$COMMENT_BODY" =~ ^/wandb\ ([a-zA-Z0-9_-]+)$ ]]; then
-            RUN_ID="${BASH_REMATCH[1]}"
-            echo "Detected Run ID: $RUN_ID"
-            echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
-          else
-            echo "No valid /wandb <run_id> found."
-            exit 1
-          fi
 
-      - name: Fetch Baseline Run from W&B
-        env:
-          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }} # Store your W&B API key in GitHub Secrets
-          PROJECT_PATH: "https://wandb.ai/rkhonsari13-saarland-informatics-campus/lineage-example"
-        run: |
-          BASELINE_RUN_ID=$(curl -s -H "Authorization: Bearer $WANDB_API_KEY" \
-            "https://api.wandb.ai/graphql" \
-            -H "Content-Type: application/json" \
-            --data-binary @- <<EOF | jq -r '.data.project.runs.edges[] | select(.node.tags[] | contains("baseline")) | .node.name'
-          {
-            "query": "query { project(name: \"${PROJECT_PATH}\") { runs(first: 100) { edges { node { name tags } } } } }"
-          }
-          EOF
-          )
-          
-          if [[ -z "$BASELINE_RUN_ID" ]]; then
-            echo "No run with the tag 'baseline' found."
-            exit 1
-          fi
+def compare_runs(entity='hamelsmu',
+                 project='cicd_demo',
+                 tag='baseline',
+                 run_id=None):
+    "Compare the current run to the baseline run."
 
-          echo "Baseline Run ID: $BASELINE_RUN_ID"
-          echo "BASELINE_RUN_ID=$BASELINE_RUN_ID" >> $GITHUB_ENV
+    # Allow you to override the args with env variables
+    entity = os.getenv('WANDB_ENTITY') or entity
+    project = os.getenv('WANDB_PROJECT') or project
+    tag = os.getenv('BASELINE_TAG') or tag
+    run_id = os.getenv('RUN_ID') or run_id
+    assert run_id, 'You must set the RUN_ID environment variable or pass a `run_id` argument'
 
+    baseline = get_baseline_run(entity=entity, project=project, tag=tag)
+    report = wr.Report(entity=entity, project=project,
+                       title='Compare Runs',
+                       description=f"A comparison of runs, the baseline run name is {baseline.name}") 
+
+    pg = wr.PanelGrid(
+        runsets=[wr.Runset(entity, project, "Run Comparison").set_filters_with_python_expr(f"ID in ['{run_id}', '{baseline.id}']")],
+        panels=[wr.RunComparer(diff_only='split', layout={'w': 24, 'h': 15}),]
+    )
+    report.blocks = report.blocks[:1] + [pg] + report.blocks[1:]
+    report.save()
+
+    if os.getenv('CI'): # is set to `true` in GitHub Actions https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f: # write the output variable REPORT_URL to the GITHUB_OUTPUT file
+            print(f'REPORT_URL={report.url}', file=f)
+    return report.url
+
+if __name__ == '__main__':
+    print(f'The comparison report can found at: {compare_runs()}')
