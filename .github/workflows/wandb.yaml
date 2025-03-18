@@ -30,7 +30,7 @@ jobs:
       - name: Fetch Baseline Run from W&B
         env:
           WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }} # Store your W&B API key in GitHub Secrets
-          PROJECT_PATH: "rkhonsari13-saarland-informatics-campus/lineage-example"
+          PROJECT_PATH: "https://wandb.ai/rkhonsari13-saarland-informatics-campus/lineage-example"
         run: |
           BASELINE_RUN_ID=$(curl -s -H "Authorization: Bearer $WANDB_API_KEY" \
             "https://api.wandb.ai/graphql" \
